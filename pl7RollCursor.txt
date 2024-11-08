@@ -1,63 +1,88 @@
-CREATE TABLE O_RollCall (
-    Roll_No INT PRIMARY KEY,
-    Name VARCHAR(100),
-    Class VARCHAR(50)
+-- Step 1: Create the tables
+
+-- N_RollCall (new roll call data)
+CREATE TABLE IF NOT EXISTS N_RollCall (
+    roll_number INT PRIMARY KEY,
+    student_name VARCHAR(100),
+    course_code VARCHAR(20)
 );
 
-CREATE TABLE N_RollCall (
-    Roll_No INT PRIMARY KEY,
-    Name VARCHAR(100),
-    Class VARCHAR(50)
+-- O_RollCall (old roll call data)
+CREATE TABLE IF NOT EXISTS O_RollCall (
+    roll_number INT PRIMARY KEY,
+    student_name VARCHAR(100),
+    course_code VARCHAR(20)
 );
 
-INSERT INTO O_RollCall VALUES
-(1, 'John Doe', 'Class A'),
-(2, 'Jane Smith', 'Class A');
+-- Step 2: Insert sample data into N_RollCall table
+INSERT INTO N_RollCall (roll_number, student_name, course_code) 
+VALUES 
+    (101, 'Alice', 'CS101'),
+    (102, 'Bob', 'CS101'),
+    (103, 'Charlie', 'CS102');
 
-INSERT INTO N_RollCall VALUES
-(1, 'John Doe', 'Class A'),
-(2, 'Jane Smith', 'Class A'),
-(3, 'Bob Wilson', 'Class A'),
-(4, 'Alice Brown', 'Class B');
+-- Step 3: Insert sample data into O_RollCall table
+INSERT INTO O_RollCall (roll_number, student_name, course_code) 
+VALUES 
+    (101, 'Alice', 'CS101');
 
-DELIMITER $
+-- Step 4: Create the stored procedure to merge data
 
-Create procedure Merged()
+DELIMITER $$
+
+CREATE PROCEDURE merge_rollcall_data(p_course_code VARCHAR(20))
 BEGIN
-Declare v_roll int;
-declare v_name varchar(100);
-declare v_class varchar(50);
-declare v_done INT DEFAULT FALSE;
-Declare v_count int;
-Declare cur_all_records CURSOR FOR
-SELECT Roll_No, Name, Class
-FROM N_RollCall;
+    -- Declare cursor and variables
+    DECLARE done INT DEFAULT 0;
+    DECLARE v_roll_number INT;
+    DECLARE v_student_name VARCHAR(100);
+    DECLARE v_course_code VARCHAR(20);
 
-Declare continue handler for not found set v_done = true;
-Declare exit handler for sqlexception select 'An unexpected error occured';
+    -- Declare cursor to fetch data from N_RollCall based on course_code
+    DECLARE cur_rollcall CURSOR FOR
+        SELECT roll_number, student_name, course_code
+        FROM N_RollCall
+        WHERE course_code = p_course_code;
 
-Open cur_all_records;
+    -- Declare handler for end of data (when no more rows are available)
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
 
-fetch_loop: LOOP
-fetch cur_all_records into v_roll,v_name,v_class;
+    -- Open the cursor
+    OPEN cur_rollcall;
 
-If v_done THEN
-    Leave fetch_loop;
-End if;
+    -- Loop through each record in the cursor
+    read_loop: LOOP
+        -- Fetch data into variables
+        FETCH cur_rollcall INTO v_roll_number, v_student_name, v_course_code;
+        
+        -- Exit the loop if no more rows are found
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
 
-Select count(*) into v_count
-From O_RollCall
-Where Roll_No = v_roll;
+        -- Check if the record already exists in O_RollCall
+        IF NOT EXISTS (SELECT 1 FROM O_RollCall WHERE roll_number = v_roll_number) THEN
+            -- Insert record into O_RollCall if it doesn't exist
+            INSERT INTO O_RollCall (roll_number, student_name, course_code)
+            VALUES (v_roll_number, v_student_name, v_course_code);
+        END IF;
+    END LOOP;
 
-If v_count=0 then
-    Insert into O_RollCall
-    Values(v_roll,v_name,v_class);
-End if;
-End LOOP;
-Call Merged();
+    -- Close the cursor
+    CLOSE cur_rollcall;
+END$$
 
+DELIMITER ;
 
+-- Step 5: Call the procedure to merge data for a specific course
 
-Close cur_all_records;
+-- Example: Merge data for course 'CS101'
+CALL merge_rollcall_data('CS101');
 
-End;
+-- Step 6: Check the contents of O_RollCall table after procedure call
+SELECT * FROM O_RollCall;
+
+-- Optional: Clean up by dropping the procedure and tables (if no longer needed)
+-- DROP PROCEDURE IF EXISTS merge_rollcall_data;
+-- DROP TABLE IF EXISTS N_RollCall;
+-- DROP TABLE IF EXISTS O_RollCall;
